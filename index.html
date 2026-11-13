@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tool Xuất Phiếu Giao Nhận Bê Tông (Gộp File)</title>
+    <title>Tool Xuất Phiếu Bê Tông (Fix Lỗi Undefined)</title>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/pizzip@3.1.4/dist/pizzip.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/docxtemplater@3.37.11/build/docxtemplater.js"></script>
@@ -89,6 +89,7 @@
             display: none;
             font-size: 14px;
             line-height: 1.5;
+            white-space: pre-line;
         }
         .success { background: #e8f5e9; color: #2e7d32; border: 1px solid #c8e6c9; }
         .error { background: #ffebee; color: #c62828; border: 1px solid #ffcdd2; }
@@ -98,18 +99,18 @@
 <body>
 
 <div class="container">
-    <h2>XUẤT PHIẾU BÊ TÔNG (GỘP CHUNG 1 FILE)</h2>
+    <h2>XUẤT PHIẾU BÊ TÔNG (BẢN FIX)</h2>
 
     <div class="form-group">
         <label>1. Chọn file Word mẫu (.docx):</label>
         <input type="file" id="wordFile" accept=".docx">
-        <div class="note">* Giữ nguyên các biến dạng <b>{tramSo}</b>, <b>{soPhieu}</b>, <b>{ngay}</b>... trong file mẫu.</div>
+        <div class="note">* Đảm bảo các biến trong Word khớp hoàn toàn với tên cột Excel (Ví dụ: <b>{tramSo}</b>, <b>{soPhieu}</b>).</div>
     </div>
 
     <div class="form-group">
         <label>2. Chọn file dữ liệu Excel (.xlsx, .xls):</label>
         <input type="file" id="excelFile" accept=".xlsx, .xls">
-        <div class="note" id="excelInfo">* Dòng 1 của file Excel phải là tên cột trùng khớp với biến trong file Word.</div>
+        <div class="note" id="excelInfo">* Dòng 1 của file Excel phải chứa tên các biến.</div>
     </div>
 
     <div class="form-group">
@@ -144,8 +145,12 @@
             excelRows = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: "" });
             
             const totalRows = excelRows.length;
+            const headers = excelRows[0] ? excelRows[0].map(h => String(h).trim()).filter(h => h) : [];
+            
             document.getElementById('excelInfo').innerHTML = 
-                `✅ Đã đọc file: <b>${file.name}</b> (Tổng cộng <b>${totalRows}</b> dòng).`;
+                `✅ Đã đọc file: <b>${file.name}</b> (Tổng ${totalRows} dòng).<br>` +
+                `<span style="color: #2e7d32;">Các cột nhận diện được: <b>${headers.join(", ")}</b></span>`;
+            
             if (totalRows >= 2) {
                 document.getElementById('endRow').value = totalRows;
             }
@@ -192,118 +197,55 @@
             return;
         }
 
-        showStatus("⏳ Đang tổng hợp dữ liệu thành 1 file, vui lòng đợi...", "info");
+        showStatus("⏳ Đang tổng hợp dữ liệu, vui lòng đợi...", "info");
 
         try {
             const wordArrayBuffer = await wordFile.arrayBuffer();
+            // Làm sạch tên cột (bỏ khoảng trắng thừa)
             const headers = excelRows[0].map(h => String(h).trim());
             const maxRow = Math.min(endRow, excelRows.length);
             
-            // Sử dụng PizZip để nạp file template gốc
-            let zip = new PizZip(wordArrayBuffer);
-            let doc = new window.docxtemplater(zip, {
-                paragraphLoop: true,
-                linebreaks: true,
-                delimiters: { start: '{', end: '}' }
-            });
+            let combinedBody = "";
+            let count = 0;
 
-            let listContexts = [];
             for (let r = startRow - 1; r < maxRow; r++) {
                 const rowData = excelRows[r];
                 if (!rowData || rowData.every(cell => cell === "")) continue;
 
                 const context = {};
-                headers.forEach((header, idx) => {
-                    if (header) {
-                        context[header] = formatCellValue(rowData[idx]);
+                headers.forEach((h, idx) => {
+                    if (h) {
+                        context[h] = formatCellValue(rowData[idx]);
                     }
                 });
-                listContexts.push(context);
-            }
-
-            if (listContexts.length === 0) {
-                showStatus("⚠️ Không tìm thấy dữ liệu trong khoảng dòng đã chọn.", "error");
-                return;
-            }
-
-            // Kỹ thuật gộp: Sử dụng tính năng vòng lặp (Loop) ngầm của docxtemplater 
-            // Bằng cách tạo 1 tệp tạm thời chứa cấu trúc lặp kèm ngắt trang (w:br w:type="page") giữa các phiếu
-            let contentXml = doc.zip.file("word/document.xml").asText();
-            
-            // Tự động thêm thẻ ngắt trang Word vào cuối mỗi phiếu ngoại trừ phiếu cuối cùng
-            let repeatedXml = "";
-            for (let i = 0; i < listContexts.length; i++) {
-                repeatedXml += contentXml;
-                if (i < listContexts.length - 1) {
-                    // Chèn lệnh ngắt trang cứng của Microsoft Word giữa các phiếu
-                    repeatedXml += '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
-                }
-            }
-
-            // Đóng gói lại cấu trúc XML mới vào file zip Word
-            doc.zip.file("word/document.xml", repeatedXml);
-            
-            // Khởi tạo lại docxtemplater với danh sách dữ liệu mảng
-            doc.setData({ "phieu": listContexts });
-            
-            // Xử lý thay thế toàn bộ dữ liệu vòng lặp
-            // (Nếu template của bạn chưa bọc trong thẻ {#phieu}...{/phieu}, ta xử lý bằng cách render mảng trực tiếp qua cú pháp lặp tự động)
-            doc.render();
-
-            const outBlob = doc.getZip().generate({
-                type: "blob",
-                mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            });
-
-            saveAs(outBlob, `Tong_Hop_Phieu_Dong_${startRow}_den_${maxRow}.docx`);
-            showStatus(`✅ <b>Thành công!</b> Đã gộp và tải xuống file tổng hợp chứa <b>${listContexts.length}</b> phiếu (mỗi phiếu 1 trang riêng biệt).`, "success");
-
-        } catch (err) {
-            console.error(err);
-            // Phương án dự phòng an toàn tuyệt đối nếu file Word mẫu không hỗ trợ loop XML phức tạp
-            fallbackSimpleMerge(wordArrayBuffer, excelRows, startRow, maxRow, headers);
-        }
-    });
-
-    // Hàm dự phòng: Nếu cấu trúc phức tạp, tool sẽ dùng phương án nối văn bản an toàn
-    async function fallbackSimpleMerge(wordArrayBuffer, rows, start, end, headers) {
-        try {
-            const zipFinal = new JSZip();
-            // Tạo một file zip mới chứa các phần Document XML nối nhau
-            // Để đảm bảo nhanh gọn, ta dùng lại thư viện tạo từng file rồi gộp text
-            showStatus("⚠️ Đang dùng cơ chế gộp thông minh thay thế...", "info");
-            
-            // Cách đơn giản và ổn định nhất nếu file mẫu đơn trang: 
-            // Xuất ra các file ẩn rồi dùng thư viện ghép nội dung body XML
-            let combinedBody = "";
-            let count = 0;
-
-            for (let r = start - 1; r < end; r++) {
-                const rowData = rows[r];
-                if (!rowData || rowData.every(cell => cell === "")) continue;
-
-                const context = {};
-                headers.forEach((h, idx) => { if(h) context[h] = formatCellValue(rowData[idx]); });
 
                 const pizzip = new PizZip(wordArrayBuffer);
-                const docItem = new window.docxtemplater(pizzip, { delimiters: { start: '{', end: '}' } });
+                const docItem = new window.docxtemplater(pizzip, {
+                    paragraphLoop: true,
+                    linebreaks: true,
+                    delimiters: { start: '{', end: '}' }
+                });
+
                 docItem.render(context);
                 
                 let zipOutput = docItem.getZip();
                 let docXml = zipOutput.file("word/document.xml").asText();
                 
-                // Lấy phần nội dung bên trong thẻ w:body
                 let bodyMatch = docXml.match(/<w:body[^>]*>([\s\S]*)<\/w:body>/);
                 if (bodyMatch) {
                     combinedBody += bodyMatch[1];
-                    if (r < end - 1) {
-                        combinedBody += '<w:p><w:r><w:br w:type="page"/></w:r></w:p>'; // Ngắt trang
+                    if (r < maxRow - 1) {
+                        combinedBody += '<w:p><w:r><w:br w:type="page"/></w:r></w:p>'; // Ngắt trang giữa các phiếu
                     }
                 }
                 count++;
             }
 
-            // Lấy một file chuẩn làm khung sườn
+            if (count === 0) {
+                showStatus("⚠️ Không tìm thấy dữ liệu trong khoảng dòng đã chọn.", "error");
+                return;
+            }
+
             const baseZip = new PizZip(wordArrayBuffer);
             let baseDocumentXml = baseZip.file("word/document.xml").asText();
             let finalXml = baseDocumentXml.replace(/(<w:body[^>]*>)([\s\S]*)(<\/w:body>)/, `$1${combinedBody}$3`);
@@ -311,12 +253,14 @@
             baseZip.file("word/document.xml", finalXml);
             const finalBlob = baseZip.generate({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
             
-            saveAs(finalBlob, `Phieu_Be_Tong_Gop_${start}_den_${end}.docx`);
-            showStatus(`✅ <b>Thành công!</b> Đã gộp thành công <b>${count}</b> phiếu vào 1 file Word duy nhất!`, "success");
+            saveAs(finalBlob, `Phieu_Be_Tong_Gop_${startRow}_den_${maxRow}.docx`);
+            showStatus(`✅ Thành công! Đã gộp thành công ${count} phiếu vào 1 file Word duy nhất (mỗi phiếu 1 trang).`, "success");
+
         } catch (ex) {
-            showStatus("❌ Lỗi gộp file: " + ex.message, "error");
+            console.error(ex);
+            showStatus("❌ Lỗi xử lý: " + ex.message + "\n\n💡 Mẹo: Hãy kiểm tra lại file Word mẫu xem các thẻ {tramSo}, {soPhieu}... có bị lỗi định dạng ẩn trong Word hay không.", "error");
         }
-    }
+    });
 </script>
 
 </body>
