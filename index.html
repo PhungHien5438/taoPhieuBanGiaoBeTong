@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tool Xuất Phiếu Giao Nhận Bê Tông</title>
+    <!-- Các thư viện xử lý Excel, Word, Zip chạy trực tiếp trên trình duyệt -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/pizzip@3.1.4/dist/pizzip.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/docxtemplater@3.37.11/build/docxtemplater.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+    <style>
+        :root {
+            --primary: #1976D2;
+            --primary-hover: #1565C0;
+            --bg: #f4f6f9;
+            --card: #ffffff;
+            --border: #dce1e7;
+            --text: #2c3e50;
+        }
+        * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        body {
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 30px 15px;
+            display: flex;
+            justify-content: center;
+        }
+        .container {
+            background: var(--card);
+            width: 100%;
+            max-width: 680px;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+        }
+        h2 {
+            margin-top: 0;
+            text-align: center;
+            color: var(--primary);
+            border-bottom: 2px solid #eef2f7;
+            padding-bottom: 15px;
+        }
+        .form-group { margin-bottom: 20px; }
+        label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+        input[type="file"], input[type="number"], input[type="text"] {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 14px;
+            background: #fafbfc;
+        }
+        input[type="file"] { cursor: pointer; }
+        .row-range {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+        .row-range > div { flex: 1; }
+        .folder-box {
+            display: flex;
+            gap: 10px;
+        }
+        .folder-box input { background: #eef2f7; color: #555; }
+        .btn {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 6px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+            white-space: nowrap;
+        }
+        .btn:hover { background-color: var(--primary-hover); }
+        .btn-secondary { background-color: #546e7a; }
+        .btn-secondary:hover { background-color: #455a64; }
+        .btn-submit {
+            width: 100%;
+            padding: 14px;
+            font-size: 16px;
+            margin-top: 10px;
+        }
+        .note {
+            font-size: 12.5px;
+            color: #666;
+            margin-top: 5px;
+        }
+        #status {
+            margin-top: 20px;
+            padding: 12px;
+            border-radius: 6px;
+            display: none;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        .success { background: #e8f5e9; color: #2e7d32; border: 1px solid #c8e6c9; }
+        .error { background: #ffebee; color: #c62828; border: 1px solid #ffcdd2; }
+        .info { background: #e3f2fd; color: #1565c0; border: 1px solid #bbdefb; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>XUẤT PHIẾU GIAO NHẬN BÊ TÔNG</h2>
+
+    <div class="form-group">
+        <label>1. Chọn file Word mẫu (.docx):</label>
+        <input type="file" id="wordFile" accept=".docx">
+        <div class="note">* Giữ nguyên các biến dạng <b>{tramSo}</b>, <b>{soPhieu}</b>, <b>{ngay}</b>... trong file mẫu.</div>
+    </div>
+
+    <div class="form-group">
+        <label>2. Chọn file dữ liệu Excel (.xlsx, .xls):</label>
+        <input type="file" id="excelFile" accept=".xlsx, .xls">
+        <div class="note" id="excelInfo">* Dòng 1 của file Excel phải là tên cột trùng khớp với biến trong file Word.</div>
+    </div>
+
+    <div class="form-group">
+        <label>3. Chọn khoảng dòng dữ liệu cần xuất (Tính theo số thứ tự dòng trong Excel):</label>
+        <div class="row-range">
+            <div>
+                <span class="note">Từ dòng số:</span>
+                <input type="number" id="startRow" value="2" min="2">
+            </div>
+            <div>
+                <span class="note">Đến dòng số:</span>
+                <input type="number" id="endRow" value="2" min="2">
+            </div>
+        </div>
+    </div>
+
+    <div class="form-group">
+        <label>4. Chọn thư mục lưu các file hoàn thiện:</label>
+        <div class="folder-box">
+            <input type="text" id="folderName" value="Mặc định: Tải về dạng file nén (.ZIP)" readonly>
+            <button type="button" class="btn btn-secondary" id="btnSelectFolder">Chọn thư mục</button>
+        </div>
+        <div class="note">* Dùng Chrome hoặc Edge để chọn lưu trực tiếp từng file .docx vào thư mục trên máy.</div>
+    </div>
+
+    <button type="button" class="btn btn-submit" id="btnExport">XUẤT DỮ LIỆU RA FILE DOCX</button>
+
+    <div id="status"></div>
+</div>
+
+<script>
+    let dirHandle = null;
+    let excelRows = [];
+
+    // Đọc trước thông tin file Excel khi người dùng vừa chọn để báo tổng số dòng
+    document.getElementById('excelFile').addEventListener('change', async function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        try {
+            const data = await file.arrayBuffer();
+            const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+            const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+            // Chuyển thành mảng 2 chiều (mỗi phần tử là 1 dòng)
+            excelRows = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: "" });
+            
+            const totalRows = excelRows.length;
+            document.getElementById('excelInfo').innerHTML = 
+                `✅ Đã đọc file: <b>${file.name}</b> (Tổng cộng <b>${totalRows}</b> dòng, dữ liệu từ dòng 2 đến dòng ${totalRows}).`;
+            if (totalRows >= 2) {
+                document.getElementById('endRow').value = totalRows;
+            }
+        } catch (err) {
+            showStatus("Lỗi đọc file Excel: " + err.message, "error");
+        }
+    });
+
+    // Chọn thư mục lưu trực tiếp bằng File System Access API
+    document.getElementById('btnSelectFolder').addEventListener('click', async () => {
+        if (!window.showDirectoryPicker) {
+            alert("Trình duyệt của bạn không hỗ trợ chọn thư mục trực tiếp. Hệ thống sẽ tự động tải về dạng file nén .ZIP!");
+            return;
+        }
+        try {
+            dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+            document.getElementById('folderName').value = "📁 Thư mục đã chọn: " + dirHandle.name;
+        } catch (err) {
+            // Người dùng bấm hủy chọn
+        }
+    });
+
+    // Hàm định dạng ngày/giờ chuẩn Việt Nam khi đọc từ Excel
+    function formatCellValue(val) {
+        if (val === null || val === undefined) return "";
+        if (val instanceof Date) {
+            // Nếu năm <= 1900 thì đây là giá trị Giờ (ví dụ 09:03)
+            if (val.getFullYear() <= 1900) {
+                const hh = String(val.getHours()).padStart(2, '0');
+                const mm = String(val.getMinutes()).padStart(2, '0');
+                return `${hh}:${mm}`;
+            }
+            const dd = String(val.getDate()).padStart(2, '0');
+            const mm = String(val.getMonth() + 1).padStart(2, '0');
+            const yyyy = val.getFullYear();
+            return `${dd}/${mm}/${yyyy}`;
+        }
+        return String(val).trim();
+    }
+
+    function showStatus(msg, type) {
+        const statusEl = document.getElementById('status');
+        statusEl.className = type;
+        statusEl.innerHTML = msg;
+        statusEl.style.display = 'block';
+    }
+
+    // Xử lý xuất file
+    document.getElementById('btnExport').addEventListener('click', async () => {
+        const wordFile = document.getElementById('wordFile').files[0];
+        const excelFile = document.getElementById('excelFile').files[0];
+        const startRow = parseInt(document.getElementById('startRow').value);
+        const endRow = parseInt(document.getElementById('endRow').value);
+
+        if (!wordFile || !excelFile) {
+            showStatus("⚠️ Vui lòng chọn đầy đủ cả File Word mẫu và File dữ liệu Excel!", "error");
+            return;
+        }
+        if (isNaN(startRow) || isNaN(endRow) || startRow < 2 || endRow < startRow) {
+            showStatus("⚠️ Khoảng dòng không hợp lệ! Dòng bắt đầu phải >= 2 và <= dòng kết thúc.", "error");
+            return;
+        }
+        if (startRow > excelRows.length) {
+            showStatus(`⚠️ File Excel chỉ có ${excelRows.length} dòng!`, "error");
+            return;
+        }
+
+        showStatus("⏳ Đang xử lý dữ liệu, vui lòng đợi...", "info");
+
+        try {
+            const wordArrayBuffer = await wordFile.arrayBuffer();
+            const headers = excelRows[0].map(h => String(h).trim()); // Dòng 1 làm tên biến
+            const maxRow = Math.min(endRow, excelRows.length);
+            
+            const zip = new JSZip();
+            let count = 0;
+
+            for (let r = startRow - 1; r < maxRow; r++) {
+                const rowData = excelRows[r];
+                if (!rowData || rowData.every(cell => cell === "")) continue; // Bỏ qua dòng trống
+
+                // Ghép dữ liệu theo cặp { tenCot: giaTri }
+                const context = {};
+                headers.forEach((header, idx) => {
+                    if (header) {
+                        context[header] = formatCellValue(rowData[idx]);
+                    }
+                });
+
+                // Nạp template Word và đổ dữ liệu
+                const pizzip = new PizZip(wordArrayBuffer);
+                const doc = new window.docxtemplater(pizzip, {
+                    paragraphLoop: true,
+                    linebreaks: true,
+                    delimiters: { start: '{', end: '}' } // Khớp với mẫu {tramSo} của bạn
+                });
+
+                doc.render(context);
+
+                const outBlob = doc.getZip().generate({
+                    type: "blob",
+                    mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                });
+
+                const soPhieu = (context.soPhieu || "").replace(/[\/\\:*?"<>|]/g, "-");
+                const fileName = soPhieu ? `Phieu_${soPhieu}_Dong_${r + 1}.docx` : `Phieu_Dong_${r + 1}.docx`;
+
+                if (dirHandle) {
+                    // Lưu trực tiếp từng file .docx vào thư mục đã chọn
+                    const fileHandle = await dirHandle.getFileHandle(fileName, { create: true });
+                    const writable = await fileHandle.createWritable();
+                    await writable.write(outBlob);
+                    await writable.close();
+                } else {
+                    // Gom vào file ZIP nếu chưa chọn thư mục
+                    zip.file(fileName, outBlob);
+                }
+                count++;
+            }
+
+            if (count === 0) {
+                showStatus("⚠️ Không có dòng nào có dữ liệu trong khoảng bạn chọn.", "error");
+                return;
+            }
+
+            if (dirHandle) {
+                showStatus(`✅ <b>Thành công!</b> Đã lưu trực tiếp <b>${count}</b> file .docx vào thư mục <b>"${dirHandle.name}"</b>.`, "success");
+            } else {
+                const zipBlob = await zip.generateAsync({ type: "blob" });
+                saveAs(zipBlob, `Phieu_Be_Tong_Dong_${startRow}_den_${maxRow}.zip`);
+                showStatus(`✅ <b>Thành công!</b> Đã xuất <b>${count}</b> file và tải xuống dưới dạng file nén (.ZIP).`, "success");
+            }
+
+        } catch (err) {
+            console.error(err);
+            showStatus("❌ Có lỗi xảy ra khi xuất file: " + err.message, "error");
+        }
+    });
+</script>
+
+</body>
+</html>
